@@ -1,0 +1,102 @@
+name: PrepareRelease
+
+on:
+  pull_request:
+    types:
+     - closed
+    branches:
+      - dev
+
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       version:
+#         description: 'Provide release version number'
+#         default: '0.0.0'
+#         required: true
+#         type: string
+#       message:
+#         description: 'Release tag message'
+#         required: true
+
+jobs:
+  prepare-release:
+    name: Trigger release Job
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions: write-all
+
+    steps:
+      - run: echo "Trigger release Job - triggered"
+      # - name: Get PR Commits # marketplace/actions/get-pull-requests-commits
+      #   id: 'get-pr-commits'
+      #   uses: luizgustavosaraiva/get-pull-requests-commits@main
+      #   with:
+      #     token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout 'dev' # 'marketplace/actions/checkout'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get next tag # 'marketplace/actions/git-next-tag'
+        id: calculate_next_version
+        uses: ldelarue/git-next-tag@v0
+        with:
+          tag-prefix: v
+
+      # - name: Create New Tag # 'marketplace/actions/create-tag'
+      #   uses: negz/create-tag@v1
+      #   with:
+      #     token: ${{ secrets.GITHUB_TOKEN }}
+      #     version: ${{ steps.calculate_next_version.outputs.tag }}
+      
+      - name: Create release branch # 'marketplace/actions/create-branch'
+        uses: peterjgrainger/action-create-branch@v2.2.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          branch: 'release-${{ steps.calculate_next_version.outputs.tag }}'
+          # sha: '${{ github.event.pull_request.head.sha }}'
+
+      - name: Checkout 'release-${{ steps.calculate_next_version.outputs.tag }}' # 'marketplace/actions/checkout'
+        uses: actions/checkout@v4
+        with:
+          ref: 'release-${{ steps.calculate_next_version.outputs.tag }}'
+
+      - name: Push to RELEASELOG
+        run: |
+          echo $(date +%Z_%Y-%m-%d_%H:%M:%S)_[${{ steps.calculate_next_version.outputs.tag }}] Released new version. >> RELEASELOG.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Added [${{ steps.calculate_next_version.outputs.tag }}] to RELEASELOG.txt"
+          git push
+          
+      - name: Create Pull Request 'release-${{ steps.calculate_next_version.outputs.tag }}' to 'prod' # marketplace/actions/create-pull-request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: 'release-${{ steps.calculate_next_version.outputs.tag }}'
+          base: 'prod'
+          title: '[${{ steps.calculate_next_version.outputs.tag }}] Integration request'
+          body: '[${{ steps.calculate_next_version.outputs.tag }}] Integration request'
+
+      - name: Checkout 'release-${{ steps.calculate_next_version.outputs.tag }}' # 'marketplace/actions/checkout'
+        uses: actions/checkout@v4
+        with:
+          ref: 'prod'
+
+      - name: Create New Tag # 'marketplace/actions/create-tag'
+        uses: negz/create-tag@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: ${{ steps.calculate_next_version.outputs.tag }}
+
+      - name: Create Pull Request 'prod' to 'dev' # marketplace/actions/create-pull-request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: 'prod'
+          base: 'dev'
+          title: '[Backtrack][${{ steps.calculate_next_version.outputs.tag }}] Integration request'
+          body: '[Backtrack][${{ steps.calculate_next_version.outputs.tag }}] Integration request'
