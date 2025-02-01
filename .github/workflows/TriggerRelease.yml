@@ -1,0 +1,134 @@
+name: Trigger Release
+
+on:
+  pull_request:
+    branches:
+      - dev
+    types:
+      - closed
+
+jobs:
+  trigger-release:
+    name: Trigger release Job
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: write-all
+
+    steps:
+      - run: echo "Trigger release Job - triggered"
+
+      - name: Checkout 'dev' # 'marketplace/actions/checkout'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get next tag # 'marketplace/actions/git-next-tag'
+        id: calculate_next_version
+        uses: ldelarue/git-next-tag@v0
+        with:
+          tag-prefix: v
+
+      - name: Create release branch # 'marketplace/actions/create-branch'
+        uses: peterjgrainger/action-create-branch@v2.2.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          branch: 'release-${{ steps.calculate_next_version.outputs.tag }}'
+
+      - name: Checkout 'release-${{ steps.calculate_next_version.outputs.tag }}' # 'marketplace/actions/checkout'
+        uses: actions/checkout@v4
+        with:
+          ref: 'release-${{ steps.calculate_next_version.outputs.tag }}'  
+
+      - name: Update 'RELEASELOG.txt'
+        run: |
+          echo -e "$(date +%Z_%Y-%m-%d_%H:%M:%S)_[${{ steps.calculate_next_version.outputs.tag }}] Released new version.\n" >> ${{ github.workspace }}/RELEASELOG.txt
+          git config --global user.name '${{ github.actor }}'
+          git config --global user.email '<giedrys.michal@gmail.com>'  
+          git commit -a -m "Added [${{ steps.calculate_next_version.outputs.tag }}] to RELEASELOG.txt"
+          git push -u origin release-${{ steps.calculate_next_version.outputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create PR 'release-${{ steps.calculate_next_version.outputs.tag }}' to 'prod' # marketplace/actions/auto-pull-request
+        id: release-pr
+        uses: diillson/auto-pull-request@v1.0.1
+        with:
+          source_branch: "release-${{ steps.calculate_next_version.outputs.tag }}"
+          destination_branch: "prod"
+          pr_title: '[${{ steps.calculate_next_version.outputs.tag }}] Integration request'
+          pr_body: '[${{ steps.calculate_next_version.outputs.tag }}] Integration request'
+          pr_reviewer: '${{ github.actor }}'
+          pr_allow_empty: true
+
+      # - name: Create PR 'release-${{ steps.calculate_next_version.outputs.tag }}' to 'prod' # marketplace/actions/create-pull-request
+      #   id: create-pull-request
+      #   uses: peter-evans/create-pull-request@v7
+      #   with:
+      #     branch: 'release-${{ steps.calculate_next_version.outputs.tag }}'
+      #     base: 'prod'
+      #     title: '[${{ steps.calculate_next_version.outputs.tag }}] Integration request'
+      #     body: '[${{ steps.calculate_next_version.outputs.tag }}] Integration request'
+      #     commit-message: 'Added [${{ steps.calculate_next_version.outputs.tag }}] to RELEASELOG.txt'
+      #     author: '${{ github.actor }} <giedrys.michal@gmail.com>'
+      #     committer: '${{ github.actor }} <giedrys.michal@gmail.com>'
+      #     reviewers: '${{ github.actor }}'
+
+      - name: Approve [${{ steps.calculate_next_version.outputs.tag }}] Release Pull Request
+        uses: peter-evans/approve-pull-request-action@v2
+        with:
+          number: ${{ steps.release-pr.outputs.pr_number }}
+          github-token: ${{ secrets.ACTIONS_PAT }}
+
+      # - name: Merge [${{ steps.calculate_next_version.outputs.tag }}] Release Pull Request
+      #   uses: juliangruber/merge-pull-request-action@v1
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+      #     number: ${{ steps.release-pr.outputs.pr_number }}
+      #     method: rebase
+
+      # - name: Checkout 'prod' # 'marketplace/actions/checkout'
+      #   uses: actions/checkout@v4
+      #   with:
+      #     ref: 'prod'
+      #     fetch-depth: 0
+
+      # - name: Create [${{ steps.calculate_next_version.outputs.tag }}] Release Tag # 'marketplace/actions/create-tag'
+      #   uses: negz/create-tag@v1
+      #   with:
+      #     token: ${{ secrets.GITHUB_TOKEN }}
+      #     version: ${{ steps.calculate_next_version.outputs.tag }}
+      #     message: '[${{ steps.calculate_next_version.outputs.tag }}] Release Tag'
+
+      # - name: Backtrack PR 'prod' to 'dev' # marketplace/actions/create-pull-request
+      #   uses: peter-evans/create-pull-request@v7
+      #   with:
+      #     branch: 'prod'
+      #     base: 'dev'
+      #     title: '[Backtrack][${{ steps.calculate_next_version.outputs.tag }}] Integration request'
+      #     body: '[Backtrack][${{ steps.calculate_next_version.outputs.tag }}] Integration request'
+
+      # - name: Backtrack PR 'prod' to 'dev' # marketplace/actions/auto-pull-request
+      #   id: backtrack-pr
+      #   uses: diillson/auto-pull-request@v1.0.1
+      #   with:
+      #     source_branch: "prod"
+      #     destination_branch: "dev"
+      #     pr_title: 'Backtrack [${{ steps.calculate_next_version.outputs.tag }}] release from "prod" to "dev"'
+      #     pr_body: 'Backtrack [${{ steps.calculate_next_version.outputs.tag }}] release from "prod" to "dev"'
+      #     pr_reviewer: '${{ github.actor }}'
+      #     pr_allow_empty: true
+      
+      # - name: Approve Pull Request
+      #   uses: peter-evans/approve-pull-request-action@v2
+      #   with:
+      #     number: ${{ steps.release-pr.outputs.pr_number }}
+      #     github-token: ${{ secrets.ACTIONS_PAT }}
+  
+      # - name: Merge Pull Request
+      #   uses: juliangruber/merge-pull-request-action@v1
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+      #     number: ${{ steps.release-pr.outputs.pr_number }}
+      #     method: rebase
