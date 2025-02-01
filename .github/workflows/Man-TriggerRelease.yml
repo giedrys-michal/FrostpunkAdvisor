@@ -1,0 +1,72 @@
+name: TriggerRelease
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - dev
+
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       version:
+#         description: 'Provide release version number'
+#         default: '0.0.0'
+#         required: true
+#         type: string
+#       message:
+#         description: 'Release tag message'
+#         required: true
+
+jobs:
+  trigger-release:
+    name: Trigger release Job
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Get PR Commits # marketplace/actions/get-pull-requests-commits
+        id: 'get-pr-commits'
+        uses: luizgustavosaraiva/get-pull-requests-commits@master
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout # 'marketplace/actions/checkout'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get next tag # 'marketplace/actions/git-next-tag'
+        id: calculate_next_version
+        uses: ldelarue/git-next-tag@v0
+        with:
+          tag-prefix: v
+
+      - name: Create New Tag # 'marketplace/actions/create-tag'
+        uses: negz/create-tag@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: ${{ steps.calculate_next_version.outputs.tag }}
+      
+      - name: Create release branch # 'marketplace/actions/create-branch'
+        uses: peterjgrainger/action-create-branch@v2.2.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          branch: 'release-${{ steps.calculate_next_version.outputs.tag }}'
+
+      - name: Checkout release branch # 'marketplace/actions/checkout'
+        uses: actions/checkout@v4
+        with:
+          ref: 'release-${{ steps.calculate_next_version.outputs.tag }}'
+
+      - name: Create Pull Request # marketplace/actions/create-pull-request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: 'release-${{ steps.calculate_next_version.outputs.tag }}'
+          base: 'prod'
+          title: '[${{ steps.calculate_next_version.outputs.tag }}] Integration request'
+          body: '${{ steps.get-pr-commits.outputs.commits }}'
